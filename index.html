@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Sky Courier — Mission Flight Sim</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width:100%; height:100%; overflow:hidden; font-family: ui-monospace, "SF Mono", Menlo, monospace; color:#cfe; background:#000; user-select:none; }
+  #c { display:block; width:100%; height:100%; }
+  .panel { position:fixed; background:rgba(8,14,22,.72); border:1px solid #1e3548; border-radius:8px; backdrop-filter:blur(8px); padding:8px 12px; font-size:12px; line-height:1.55; }
+  #hud { top:12px; left:12px; min-width:240px; }
+  #hud .row { display:flex; justify-content:space-between; gap:18px; }
+  #hud .lbl { color:#6aa; }
+  #hud .val { color:#fff; font-weight:600; }
+  #hud .warn { color:#ff5252; font-weight:700; animation:blink 0.6s steps(2) infinite; }
+  .bar { width:100%; height:6px; border-radius:3px; background:#10202c; margin:2px 0 4px; overflow:hidden; }
+  .bar > i { display:block; height:100%; background:#7ee787; transition:width .15s; }
+  .bar.fuel > i { background:linear-gradient(90deg,#7ee787,#ffd166); }
+  .bar.dmg > i  { background:linear-gradient(90deg,#7ee787,#ff5252); }
+  .bar.boost > i { background:linear-gradient(90deg,#5af,#7ee787); }
+  @keyframes blink { 50% { opacity: 0.25; } }
+  #mission { top:12px; left:50%; transform:translateX(-50%); min-width:340px; text-align:center; }
+  #mission h2 { font-size:13px; color:#ffd166; letter-spacing:2px; margin-bottom:2px; }
+  #mission .det { font-size:11px; color:#9bb; }
+  #mission .tim { font-size:18px; color:#7ee787; font-weight:700; margin-top:4px; letter-spacing:1px; }
+  #mission .tim.bad { color:#ff5252; }
+  #score { top:12px; right:170px; padding:8px 14px; text-align:right; }
+  #score .big { font-size:22px; color:#ffd166; font-weight:800; }
+  #score .lbl { font-size:10px; color:#6aa; letter-spacing:2px; }
+  #help { bottom:12px; left:12px; max-width:380px; color:#9bb; }
+  #help kbd { background:#1a2a3a; color:#cfe; padding:1px 5px; border-radius:3px; font-size:11px; margin:0 1px; border:1px solid #2a4a6a; }
+  #minimap { position:fixed; top:12px; right:12px; width:150px; height:150px; border-radius:8px; overflow:hidden; border:1px solid #1e3548; background:rgba(8,14,22,.85); }
+  #wind { position:fixed; bottom:12px; right:12px; padding:6px 10px; font-size:11px; color:#9bb; }
+  #wind b { color:#cfe; }
+  #toast { position:fixed; top:38%; left:50%; transform:translate(-50%,-50%); padding:14px 28px; border-radius:10px; font-size:22px; font-weight:800; letter-spacing:1px; display:none; border:2px solid; text-align:center; pointer-events:none; }
+  #toast.good { background:rgba(20,80,40,.9); color:#7ee787; border-color:#7ee787; }
+  #toast.bad  { background:rgba(120,20,20,.9); color:#ff5252; border-color:#ff5252; }
+  #toast.warn { background:rgba(100,70,10,.9); color:#ffd166; border-color:#ffd166; }
+  #toast.info { background:rgba(20,40,80,.9); color:#5af; border-color:#5af; }
+  #toast small { display:block; font-size:13px; font-weight:500; letter-spacing:0; margin-top:4px; opacity:0.9; }
+  #intro { position:fixed; inset:0; background:rgba(0,5,12,.92); display:flex; align-items:center; justify-content:center; z-index:10; }
+  #intro .card { max-width:580px; padding:28px 34px; border:1px solid #1e3548; border-radius:12px; background:rgba(8,14,22,.95); }
+  #intro h1 { font-size:34px; color:#7ee787; margin-bottom:4px; letter-spacing:2px; }
+  #intro .sub { color:#9bb; margin-bottom:16px; font-size:13px; }
+  #intro .obj { color:#ffd166; font-size:13px; margin-bottom:16px; padding:10px 14px; background:rgba(255,209,102,.08); border-left:3px solid #ffd166; border-radius:4px; }
+  #intro .ctrls { display:grid; grid-template-columns: 1fr 1fr; gap:6px 18px; font-size:12px; color:#cfe; margin-bottom:16px; }
+  #intro .ctrls span:first-child { color:#6aa; }
+  #intro .tip { font-size:12px; color:#9bb; line-height:1.6; }
+  #intro .go { text-align:center; color:#ffd166; font-size:13px; margin-top:14px; animation:blink 1s steps(2) infinite; }
+  #intro kbd { background:#1a2a3a; color:#cfe; padding:1px 6px; border-radius:3px; font-size:12px; border:1px solid #2a4a6a; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud" class="panel">
+  <div class="row"><span class="lbl">SPD</span><span class="val"><span id="spd">0</span> km/h</span></div>
+  <div class="row"><span class="lbl">ALT</span><span class="val"><span id="alt">0</span> m</span></div>
+  <div class="row"><span class="lbl">HDG</span><span class="val"><span id="hdg">000</span>°</span></div>
+  <div class="row"><span class="lbl">THR</span><span class="val"><span id="thr">0</span>%</span></div>
+  <div class="row"><span class="lbl">FUEL</span><span class="val"><span id="fuelv">100</span>%</span></div>
+  <div class="bar fuel"><i id="fuelb" style="width:100%"></i></div>
+  <div class="row"><span class="lbl">HULL</span><span class="val"><span id="dmgv">100</span>%</span></div>
+  <div class="bar dmg"><i id="dmgb" style="width:100%"></i></div>
+  <div class="row"><span class="lbl">BOOST</span><span class="val"><span id="bstv">0</span>s</span></div>
+  <div class="bar boost"><i id="bstb" style="width:0%"></i></div>
+  <div class="row"><span id="stall" class="warn" style="display:none">⚠ STALL</span> <span id="lowfuel" class="warn" style="display:none">⚠ LOW FUEL</span></div>
+</div>
+
+<div id="mission" class="panel">
+  <h2 id="mtitle">— STANDBY —</h2>
+  <div class="det" id="mdet">Awaiting assignment</div>
+  <div class="tim" id="mtim">--:--</div>
+</div>
+
+<div id="score" class="panel">
+  <div class="lbl">SCORE</div>
+  <div class="big" id="scoreV">0</div>
+  <div class="lbl">DELIVERIES <span id="delivV" style="color:#cfe">0</span> · RINGS <span id="ringV" style="color:#cfe">0</span></div>
+</div>
+
+<canvas id="minimap" width="300" height="300"></canvas>
+
+<div id="wind" class="panel">
+  WIND <b id="windDir">000</b>° @ <b id="windSpd">0</b> kt
+</div>
+
+<div id="help" class="panel">
+  <kbd>W</kbd>/<kbd>S</kbd> throttle · <kbd>↑</kbd>/<kbd>↓</kbd> pitch · <kbd>←</kbd>/<kbd>→</kbd> roll · <kbd>A</kbd>/<kbd>D</kbd> yaw · <kbd>Space</kbd> brakes · <kbd>R</kbd> reset · <kbd>M</kbd> next mission
+</div>
+
+<div id="toast"></div>
+
+<div id="intro">
+  <div class="card">
+    <h1>SKY COURIER</h1>
+    <div class="sub">Mission flight sim · cargo deliveries · ring trials · fuel & damage</div>
+    <div class="obj">
+      <b>OBJECTIVE:</b> Deliver cargo between airports, fly through ring gates for time-attack bonuses, grab speed-boost rings, manage fuel & damage. High score wins.
+    </div>
+    <div class="ctrls">
+      <span>Throttle</span><span><kbd>W</kbd> up / <kbd>S</kbd> down</span>
+      <span>Pitch</span><span><kbd>↑</kbd> nose up / <kbd>↓</kbd> down</span>
+      <span>Roll</span><span><kbd>←</kbd> / <kbd>→</kbd></span>
+      <span>Yaw (rudder)</span><span><kbd>A</kbd> / <kbd>D</kbd></span>
+      <span>Brakes</span><span><kbd>Space</kbd> (ground)</span>
+      <span>Reset / next mission</span><span><kbd>R</kbd> / <kbd>M</kbd></span>
+    </div>
+    <div class="tip">
+      Take off into the wind. Deliver cargo by touching down softly on the destination runway — touchdown also refuels you. Fly through glowing <span style="color:#ffd166">ring gates</span> as fast as possible for big score multipliers. <span style="color:#5af">Blue rings</span> = speed boost. Watch hull damage and fuel. Mini-map shows airports (<span style="color:#7ee787">green</span>=destination) and gates.
+    </div>
+    <div class="go">CLICK or press SPACE to fly</div>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+// ===== boot =====
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.shadowMap.enabled = false;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x86b8d8);
+scene.fog = new THREE.Fog(0x9ec8e0, 1500, 9000);
+
+const camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.5, 14000);
+camera.position.set(0, 30, 80);
+
+addEventListener('resize', () => {
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+});
+
+// ===== light =====
+const sun = new THREE.DirectionalLight(0xfff1d0, 1.2);
+sun.position.set(800, 1500, 400);
+scene.add(sun);
+scene.add(new THREE.HemisphereLight(0xaad6f0, 0x44623a, 0.65));
+
+// ===== world: terrain w/ rolling hills =====
+const WORLD = 12000;
+function rnd(seed){ let s=seed|0; return ()=>{s=(s*1664525+1013904223)|0; return ((s>>>0)/4294967296);}; }
+const seedRng = rnd(31337);
+
+const terrainGeo = new THREE.PlaneGeometry(WORLD, WORLD, 180, 180);
+terrainGeo.rotateX(-Math.PI/2);
+{
+  const pos = terrainGeo.attributes.position;
+  for (let i=0;i<pos.count;i++){
+    const x = pos.getX(i), z = pos.getZ(i);
+    let h = 0;
+    h += Math.sin(x*0.0008)*Math.cos(z*0.0009)*120;
+    h += Math.sin(x*0.0021+1.2)*Math.cos(z*0.0017-0.4)*60;
+    h += Math.sin(x*0.0055)*Math.cos(z*0.0048)*15;
+    // Carve flat zones around airports later
+    pos.setY(i, h);
+  }
+}
+// Airports first so we can flatten terrain at their sites
+const AIRPORTS = [
+  { name:'Kestrel Field', pos:new THREE.Vector3(0, 0, 0),       runHdg: 0 },
+  { name:'Pine Ridge',    pos:new THREE.Vector3(-3200, 0, 2400), runHdg: 60 },
+  { name:'Sand Hollow',   pos:new THREE.Vector3(2800, 0, -2900), runHdg: 110 },
+  { name:'Glacier Bay',   pos:new THREE.Vector3(-2400,0,-3600),  runHdg: 150 },
+];
+{
+  const pos = terrainGeo.attributes.position;
+  for (let i=0;i<pos.count;i++){
+    const x = pos.getX(i), z = pos.getZ(i);
+    let y = pos.getY(i);
+    for (const ap of AIRPORTS){
+      const dx=x-ap.pos.x, dz=z-ap.pos.z;
+      const d = Math.hypot(dx,dz);
+      if (d < 500){
+        const t = Math.min(1, d/500);
+        y = y * (t*t);
+      }
+    }
+    pos.setY(i, y);
+    if (Math.abs(x) < 100 && Math.abs(z) < 100) pos.setY(i, 0);
+  }
+  terrainGeo.computeVertexNormals();
+}
+// Vertex colors: grass / dirt / snow
+{
+  const col = new Float32Array(terrainGeo.attributes.position.count*3);
+  const pos = terrainGeo.attributes.position;
+  const c = new THREE.Color();
+  for (let i=0;i<pos.count;i++){
+    const y = pos.getY(i);
+    if (y > 80) c.setRGB(0.9,0.92,0.95);
+    else if (y > 30) c.setRGB(0.45,0.42,0.35);
+    else if (y < -1) c.setRGB(0.18,0.42,0.5);
+    else c.setRGB(0.32+seedRng()*0.06, 0.55+seedRng()*0.06, 0.28);
+    col[i*3]=c.r; col[i*3+1]=c.g; col[i*3+2]=c.b;
+  }
+  terrainGeo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+}
+const terrain = new THREE.Mesh(terrainGeo, new THREE.MeshLambertMaterial({ vertexColors:true, flatShading:true }));
+scene.add(terrain);
+
+// Sample terrain height
+function terrainH(x,z){
+  let h = 0;
+  h += Math.sin(x*0.0008)*Math.cos(z*0.0009)*120;
+  h += Math.sin(x*0.0021+1.2)*Math.cos(z*0.0017-0.4)*60;
+  h += Math.sin(x*0.0055)*Math.cos(z*0.0048)*15;
+  for (const ap of AIRPORTS){
+    const d = Math.hypot(x-ap.pos.x, z-ap.pos.z);
+    if (d < 500){ const t=Math.min(1, d/500); h *= (t*t); }
+  }
+  return h;
+}
+
+// ===== airports =====
+function buildAirport(ap){
+  const grp = new THREE.Group();
+  grp.position.copy(ap.pos);
+  grp.rotation.y = THREE.MathUtils.degToRad(ap.runHdg);
+  // runway
+  const run = new THREE.Mesh(new THREE.PlaneGeometry(60, 800),
+    new THREE.MeshLambertMaterial({ color:0x232730 }));
+  run.rotation.x = -Math.PI/2; run.position.y = 0.05;
+  grp.add(run);
+  // dashes
+  for (let i=-350; i<=350; i+=70){
+    const dash = new THREE.Mesh(new THREE.PlaneGeometry(2, 22),
+      new THREE.MeshBasicMaterial({ color:0xffffff }));
+    dash.rotation.x = -Math.PI/2; dash.position.set(0, 0.07, i);
+    grp.add(dash);
+  }
+  // threshold markings
+  for (let s of [-1,1]){
+    const t = new THREE.Mesh(new THREE.PlaneGeometry(50, 8),
+      new THREE.MeshBasicMaterial({ color:0xffffff }));
+    t.rotation.x = -Math.PI/2; t.position.set(0, 0.07, s*390);
+    grp.add(t);
+  }
+  // simple tower
+  const tower = new THREE.Mesh(new THREE.BoxGeometry(14,30,14),
+    new THREE.MeshLambertMaterial({ color:0xdde2e8 }));
+  tower.position.set(45, 15, 0);
+  grp.add(tower);
+  const cab = new THREE.Mesh(new THREE.BoxGeometry(18,6,18),
+    new THREE.MeshLambertMaterial({ color:0x2a3a4a }));
+  cab.position.set(45, 33, 0);
+  grp.add(cab);
+  // wind sock
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.4,0.4,18,8),
+    new THREE.MeshLambertMaterial({ color:0x444 }));
+  pole.position.set(-45, 9, 0);
+  grp.add(pole);
+  const sockMat = new THREE.MeshBasicMaterial({ color:0xff5252, side:THREE.DoubleSide });
+  const sockGeo = new THREE.ConeGeometry(2.4, 9, 8, 1, true);
+  sockGeo.translate(0, -4.5, 0);
+  sockGeo.rotateZ(-Math.PI/2);
+  const sock = new THREE.Mesh(sockGeo, sockMat);
+  sock.position.set(-45, 18, 0);
+  ap.sock = sock;
+  grp.add(sock);
+  // name beacon
+  const beacon = new THREE.Mesh(new THREE.SphereGeometry(1.5, 8, 8),
+    new THREE.MeshBasicMaterial({ color:0xffd166 }));
+  beacon.position.set(45, 38, 0);
+  ap.beacon = beacon;
+  grp.add(beacon);
+  scene.add(grp);
+  ap.group = grp;
+  ap.fwd = new THREE.Vector3(0,0,1).applyEuler(new THREE.Euler(0, THREE.MathUtils.degToRad(ap.runHdg), 0));
+}
+AIRPORTS.forEach(buildAirport);
+
+// ===== clouds (sprites) =====
+for (let i=0;i<60;i++){
+  const g = new THREE.SphereGeometry(60+seedRng()*60, 6, 5);
+  const m = new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0.7 });
+  const c = new THREE.Mesh(g, m);
+  c.position.set((seedRng()-0.5)*WORLD*0.8, 500+seedRng()*400, (seedRng()-0.5)*WORLD*0.8);
+  c.scale.set(1.5, 0.5, 1.5);
+  scene.add(c);
+}
+
+// ===== plane =====
+const plane = new THREE.Group();
+const fusMat = new THREE.MeshLambertMaterial({ color:0xe33b3b });
+const fus = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.6, 8, 12), fusMat);
+fus.rotation.x = Math.PI/2;
+plane.add(fus);
+const nose = new THREE.Mesh(new THREE.ConeGeometry(0.8, 2, 12), fusMat);
+nose.rotation.x = -Math.PI/2; nose.position.z = 5;
+plane.add(nose);
+const wing = new THREE.Mesh(new THREE.BoxGeometry(11, 0.18, 1.6),
+  new THREE.MeshLambertMaterial({ color:0xf2f2f2 }));
+wing.position.set(0, 0.2, 0.5);
+plane.add(wing);
+const tail = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.15, 1),
+  new THREE.MeshLambertMaterial({ color:0xf2f2f2 }));
+tail.position.set(0, 0.7, -3.2);
+plane.add(tail);
+const fin = new THREE.Mesh(new THREE.BoxGeometry(0.15, 1.4, 1.4),
+  new THREE.MeshLambertMaterial({ color:0xe33b3b }));
+fin.position.set(0, 1.2, -3.4);
+plane.add(fin);
+const prop = new THREE.Mesh(new THREE.BoxGeometry(3, 0.05, 0.2),
+  new THREE.MeshBasicMaterial({ color:0x111 }));
+prop.position.z = 6.1;
+plane.add(prop);
+// gear
+for (const [x,z] of [[-2,0],[2,0],[0,-2]]){
+  const g = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.3, 8),
+    new THREE.MeshLambertMaterial({ color:0x222 }));
+  g.rotation.x = Math.PI/2; g.position.set(x, -1.1, z);
+  plane.add(g);
+}
+
+// start at Kestrel runway, pointed along runHdg
+const startAp = AIRPORTS[0];
+plane.position.copy(startAp.pos).add(new THREE.Vector3(0, 1.5, -380));
+plane.rotation.y = THREE.MathUtils.degToRad(startAp.runHdg);
+scene.add(plane);
+
+// ===== game state =====
+const state = {
+  vel: new THREE.Vector3(0, 0, 0), // world-space
+  thr: 0,
+  fuel: 100,
+  hull: 100,
+  boostT: 0,
+  score: 0,
+  deliveries: 0,
+  ringsHit: 0,
+  alive: true,
+  onGround: true,
+  cargo: null,        // {from, to}
+  ringMission: null,  // { rings:[...], startT, doneT, idx }
+  flashUntil: 0};
+
+// ===== wind =====
+const wind = {
+  dirRad: seedRng()*Math.PI*2,
+  spd: 4 + seedRng()*8, // m/s
+  vec: new THREE.Vector3(),
+};
+function updateWind(t){
+  wind.dirRad += Math.sin(t*0.08)*0.0008;
+  wind.vec.set(Math.sin(wind.dirRad), 0, Math.cos(wind.dirRad)).multiplyScalar(wind.spd);
+}
+
+// ===== rings (mission gates + boost rings) =====
+const ringGroup = new THREE.Group(); scene.add(ringGroup);
+const boostGroup = new THREE.Group(); scene.add(boostGroup);
+
+function makeRing(pos, color, radius=18){
+  const tor = new THREE.TorusGeometry(radius, 1.6, 8, 28);
+  const mat = new THREE.MeshBasicMaterial({ color, transparent:true, opacity:0.95 });
+  const m = new THREE.Mesh(tor, mat);
+  m.position.copy(pos);
+  // face toward origin for flyability
+  m.lookAt(0, pos.y, 0);
+  m.userData.radius = radius;
+  return m;
+}
+
+function spawnBoostRings(){
+  // clear
+  while(boostGroup.children.length) boostGroup.remove(boostGroup.children[0]);
+  for (let i=0;i<5;i++){
+    const x = (seedRng()-0.5)*WORLD*0.5;
+    const z = (seedRng()-0.5)*WORLD*0.5;
+    const y = 220 + seedRng()*260;
+    const r = makeRing(new THREE.Vector3(x,y,z), 0x55aaff, 14);
+    r.userData.kind = 'boost';
+    boostGroup.add(r);
+  }
+}
+spawnBoostRings();
+
+function spawnRingMission(){
+  while(ringGroup.children.length) ringGroup.remove(ringGroup.children[0]);
+  // Place 5 rings in a curving aerial course around random center
+  const cx = (seedRng()-0.5)*5000;
+  const cz = (seedRng()-0.5)*5000;
+  const baseAng = seedRng()*Math.PI*2;
+  const rings = [];
+  for (let i=0;i<5;i++){
+    const ang = baseAng + i*(Math.PI*0.42);
+    const rad = 700 + i*180;
+    const x = cx + Math.cos(ang)*rad;
+    const z = cz + Math.sin(ang)*rad;
+    const y = 180 + (i%2)*120 + seedRng()*80;
+    const m = makeRing(new THREE.Vector3(x,y,z), 0xffd166, 22);
+    // orient ring perpendicular to the path tangent
+    const nextAng = ang + Math.PI*0.42;
+    const tx = Math.cos(nextAng)*rad - Math.cos(ang)*rad;
+    const tz = Math.sin(nextAng)*rad - Math.sin(ang)*rad;
+    m.lookAt(m.position.x + tx, y, m.position.z + tz);
+    m.userData.kind = 'gate';
+    m.userData.idx = i;
+    ringGroup.add(m);
+    rings.push(m);
+  }
+  // mark first as active
+  rings[0].material.color.set(0x7ee787);
+  state.ringMission = { rings, idx:0, startT:null, doneT:null };
+}
+
+// ===== cargo missions =====
+function newCargoMission(){
+  // Pick a from = nearest airport to plane, to = different airport
+  let near = AIRPORTS[0], nd = Infinity;
+  for (const ap of AIRPORTS){
+    const d = plane.position.distanceTo(ap.pos);
+    if (d < nd){ nd = d; near = ap; }
+  }
+  const choices = AIRPORTS.filter(a => a !== near);
+  const to = choices[Math.floor(seedRng()*choices.length)];
+  const cargos = ['Medical', 'Mail', 'Parts', 'Food', 'Fuel cells'];
+  state.cargo = {
+    from: near, to,
+    label: cargos[Math.floor(seedRng()*cargos.length)],
+    startT: performance.now()*0.001,
+  };
+  // visual: glow the dest beacon green
+  for (const ap of AIRPORTS) ap.beacon.material.color.set(0xffd166);
+  to.beacon.material.color.set(0x7ee787);
+}
+
+function startNewMissions(){
+  newCargoMission();
+  spawnRingMission();
+  toast('NEW MISSION', `Deliver ${state.cargo.label} to ${state.cargo.to.name}`, 'info', 2500);
+}
+
+// ===== input =====
+const keys = {};
+addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (e.code === 'Space') e.preventDefault();
+});
+addEventListener('keyup', e => { keys[e.code] = false; });
+
+// ===== UI helpers =====
+const el = id => document.getElementById(id);
+function toast(title, sub='', cls='info', ms=1800){
+  const t = el('toast');
+  t.className = cls;
+  t.innerHTML = title + (sub ? `<small>${sub}</small>` : '');
+  t.style.display = 'block';
+  state.flashUntil = performance.now() + ms;
+}
+function hideToast(){ el('toast').style.display = 'none'; }
+
+// ===== intro -> start =====
+let started = false;
+function start(){
+  if (started) return;
+  started = true;
+  document.getElementById('intro').style.display = 'none';
+  startNewMissions();
+}
+addEventListener('click', start);
+addEventListener('keydown', e => { if (e.code === 'Space') start(); });
+
+// ===== respawn / reset =====
+function respawn(){
+  const ap = AIRPORTS[0];
+  plane.position.copy(ap.pos).add(new THREE.Vector3(0, 1.5, -380));
+  plane.rotation.set(0, THREE.MathUtils.degToRad(ap.runHdg), 0);
+  state.vel.set(0,0,0);
+  state.thr = 0;
+  state.fuel = 100;
+  state.hull = 100;
+  state.boostT = 0;
+  state.onGround = true;
+}
+
+// ===== minimap =====
+const mm = document.getElementById('minimap');
+const mctx = mm.getContext('2d');
+const MM_RANGE = 7000;
+function drawMinimap(){
+  mctx.fillStyle = '#0a141c';
+  mctx.fillRect(0,0,300,300);
+  // grid
+  mctx.strokeStyle = '#1e3548'; mctx.lineWidth = 1;
+  for (let i=0;i<=6;i++){
+    mctx.beginPath(); mctx.moveTo(i*50,0); mctx.lineTo(i*50,300); mctx.stroke();
+    mctx.beginPath(); mctx.moveTo(0,i*50); mctx.lineTo(300,i*50); mctx.stroke();
+  }
+  const cx = 150, cy = 150, s = 150/MM_RANGE;
+  // airports
+  for (const ap of AIRPORTS){
+    const x = cx + (ap.pos.x - plane.position.x)*s;
+    const y = cy + (ap.pos.z - plane.position.z)*s;
+    const dest = state.cargo && state.cargo.to === ap;
+    mctx.fillStyle = dest ? '#7ee787' : '#ffd166';
+    mctx.beginPath(); mctx.arc(x,y,4,0,6.28); mctx.fill();
+    mctx.fillStyle = '#cfe'; mctx.font = '9px monospace';
+    mctx.fillText(ap.name.split(' ')[0], x+6, y+3);
+    // runway line
+    mctx.strokeStyle = dest ? '#7ee787' : '#666'; mctx.lineWidth = dest ? 2 : 1;
+    const fx = Math.sin(THREE.MathUtils.degToRad(ap.runHdg))*8;
+    const fz = Math.cos(THREE.MathUtils.degToRad(ap.runHdg))*8;
+    mctx.beginPath(); mctx.moveTo(x-fx,y-fz); mctx.lineTo(x+fx,y+fz); mctx.stroke();
+  }
+  // ring mission next gate
+  if (state.ringMission){
+    const rm = state.ringMission;
+    if (rm.idx < rm.rings.length){
+      const g = rm.rings[rm.idx];
+      const x = cx + (g.position.x - plane.position.x)*s;
+      const y = cy + (g.position.z - plane.position.z)*s;
+      mctx.fillStyle = '#7ee787';
+      mctx.beginPath(); mctx.arc(x,y,3,0,6.28); mctx.fill();
+    }
+  }
+  // plane (heading triangle)
+  const hdg = plane.rotation.y;
+  mctx.save();
+  mctx.translate(cx, cy);
+  mctx.rotate(-hdg); // canvas rotation
+  mctx.fillStyle = '#ff5252';
+  mctx.beginPath();
+  mctx.moveTo(0,-7); mctx.lineTo(5,5); mctx.lineTo(-5,5); mctx.closePath(); mctx.fill();
+  mctx.restore();
+  // wind arrow
+  mctx.save();
+  mctx.translate(280, 20);
+  mctx.rotate(wind.dirRad + Math.PI);
+  mctx.strokeStyle = '#5af'; mctx.lineWidth = 2;
+  mctx.beginPath(); mctx.moveTo(0,-8); mctx.lineTo(0,8); mctx.moveTo(0,8); mctx.lineTo(-3,4); mctx.moveTo(0,8); mctx.lineTo(3,4); mctx.stroke();
+  mctx.restore();
+}
+
+// ===== physics + game loop =====
+const tmp = new THREE.Vector3();
+const fwdV = new THREE.Vector3();
+const upV = new THREE.Vector3();
+const rightV = new THREE.Vector3();
+const worldV = new THREE.Vector3();
+
+let prevT = performance.now()*0.001;
+let camMode = 0; // 0 chase, 1 cockpit
+addEventListener('keydown', e => { if (e.code === 'KeyC') camMode = (camMode+1)%2; });
+addEventListener('keydown', e => { if (e.code === 'KeyR') respawn(); });
+addEventListener('keydown', e => { if (e.code === 'KeyM') startNewMissions(); });
+
+function step(){
+  requestAnimationFrame(step);
+  const now = performance.now();
+  const tt = now*0.001;
+  let dt = Math.min(0.05, tt - prevT);
+  prevT = tt;
+  if (!started){ renderer.render(scene, camera); return; }
+
+  updateWind(tt);
+
+  // input
+  const pitchIn = (keys['ArrowDown']?-1:0) + (keys['ArrowUp']?1:0);
+  const rollIn  = (keys['ArrowLeft']?1:0) + (keys['ArrowRight']?-1:0);
+  const yawIn   = (keys['KeyA']?1:0) + (keys['KeyD']?-1:0);
+  const thrIn   = (keys['KeyW']?1:0) + (keys['KeyS']?-1:0);
+  state.thr = THREE.MathUtils.clamp(state.thr + thrIn*dt*0.6, 0, 1);
+  const brake = keys['Space'] ? 1 : 0;
+
+  // axes from plane
+  plane.updateMatrixWorld();
+  fwdV.set(0,0,1).applyQuaternion(plane.quaternion);
+  upV.set(0,1,0).applyQuaternion(plane.quaternion);
+  rightV.set(1,0,0).applyQuaternion(plane.quaternion);
+
+  // speed in body frame
+  const speed = state.vel.length();
+  const kmh = speed * 3.6;
+  const fwdSpeed = state.vel.dot(fwdV);
+
+  // local rotation rates scale with speed
+  const speedFactor = THREE.MathUtils.clamp(speed/40, 0.05, 1.2);
+  const pRate = 1.3*speedFactor, rRate = 2.2*speedFactor, yRate = 0.7*speedFactor;
+  if (!state.onGround || speed > 8){
+    plane.rotateX(pitchIn * pRate * dt);
+    plane.rotateZ(rollIn  * rRate * dt);
+    plane.rotateY(yawIn   * yRate * dt);
+  } else {
+    plane.rotateY(yawIn * 0.9 * dt * Math.max(0.2, speed/40));
+  }
+
+  // forces
+  const g = 9.81;
+  const mass = 1.0; // normalized
+  const force = new THREE.Vector3();
+  force.y -= g; // gravity
+
+  // thrust (boost mult)
+  const boost = state.boostT > 0 ? 1.6 : 1.0;
+  if (state.fuel > 0){
+    const thrustMag = state.thr * 80 * boost;
+    force.add(fwdV.clone().multiplyScalar(thrustMag));
+    // fuel burn proportional to thr
+    state.fuel -= dt * (1.0 + state.thr*2.5) * (boost>1?1.5:1) * 0.35;
+    if (state.fuel < 0) state.fuel = 0;
+  }
+  if (state.boostT > 0) state.boostT = Math.max(0, state.boostT - dt);
+
+  // aerodynamics: lift, drag, side-slip
+  // angle of attack approximated as vel-up component vs fwd
+  const vUp = state.vel.dot(upV);
+  const vFwd = state.vel.dot(fwdV);
+  const vRight = state.vel.dot(rightV);
+  // lift along upV, scales with fwd^2, reduced if AoA too high (stall)
+  const aoa = Math.atan2(-vUp, Math.max(0.01, vFwd));
+  const aoaDeg = THREE.MathUtils.radToDeg(aoa);
+  const stalling = (aoaDeg > 16 || aoaDeg < -16) && fwdSpeed > 10;
+  const liftCoef = stalling ? 0.25 : 1.0;
+  const liftMag = liftCoef * 0.06 * vFwd*vFwd;
+  force.add(upV.clone().multiplyScalar(liftMag));
+  // drag
+  const dragMag = 0.018 * speed*speed + (brake && state.onGround ? speed*1.2 : 0);
+  if (speed > 0.001) force.add(state.vel.clone().normalize().multiplyScalar(-dragMag));
+  // side slip damping
+  force.add(rightV.clone().multiplyScalar(-vRight*0.3));
+
+  // wind (only in air)
+  const groundY = terrainH(plane.position.x, plane.position.z);
+  const altAGL = plane.position.y - groundY;
+  if (altAGL > 3){
+    force.add(wind.vec.clone().multiplyScalar(0.05));
+  }
+
+  // integrate
+  state.vel.addScaledVector(force, dt/mass);
+  plane.position.addScaledVector(state.vel, dt);
+
+  // bound world
+  const half = WORLD/2 - 200;
+  if (Math.abs(plane.position.x) > half) plane.position.x = Math.sign(plane.position.x)*half;
+  if (Math.abs(plane.position.z) > half) plane.position.z = Math.sign(plane.position.z)*half;
+
+  // ground collision
+  const minY = terrainH(plane.position.x, plane.position.z) + 1.4;
+  if (plane.position.y <= minY){
+    const vy = state.vel.y;
+    plane.position.y = minY;
+    // detect hard landing
+    const slopeOK = Math.abs(plane.rotation.x) < 0.3 && Math.abs(plane.rotation.z) < 0.3;
+    const speedKmh = state.vel.length()*3.6;
+    if (!state.onGround){
+      // impact
+      const vsHard = Math.abs(vy);
+      const dmg = Math.max(0, vsHard - 5) * 8 + (slopeOK ? 0 : 30);
+      if (dmg > 0){
+        state.hull -= dmg;
+        if (state.hull > 0) toast('HARD LANDING', `-${Math.round(dmg)} hull`, 'warn', 1500);
+      }
+      // check on runway of an airport
+      let onRwy = null;
+      for (const ap of AIRPORTS){
+        const local = plane.position.clone().sub(ap.pos);
+        const cos = Math.cos(-ap.group.rotation.y), sin = Math.sin(-ap.group.rotation.y);
+        const lx = local.x*cos - local.z*sin;
+        const lz = local.x*sin + local.z*cos;
+        if (Math.abs(lx) < 30 && Math.abs(lz) < 400){ onRwy = ap; break; }
+      }
+      if (onRwy && slopeOK && speedKmh < 220 && state.hull > 0){
+        // refuel always on runway touchdown
+        if (state.fuel < 100){
+          state.fuel = Math.min(100, state.fuel + 35);
+          toast('TOUCHDOWN', 'Refueled +35%', 'good', 1400);
+        }
+        // delivery?
+        if (state.cargo && onRwy === state.cargo.to){
+          const elapsed = tt - state.cargo.startT;
+          const bonus = Math.max(0, 600 - Math.round(elapsed*5));
+          state.score += 500 + bonus;
+          state.deliveries++;
+          toast('DELIVERY COMPLETE', `+${500+bonus} (time bonus ${bonus})`, 'good', 2200);
+          newCargoMission();
+        }
+      }
+    }
+    // velocity along ground only
+    state.vel.y = Math.max(0, state.vel.y);
+    // friction
+    state.vel.multiplyScalar(0.992 - brake*0.05);
+    // auto-level on ground
+    plane.rotation.x *= 0.85;
+    plane.rotation.z *= 0.85;
+    state.onGround = true;
+    if (state.hull <= 0 && state.alive){
+      state.alive = false;
+      toast('CRASH', 'Press R to respawn', 'bad', 99999);
+    }
+  } else {
+    state.onGround = false;
+  }
+
+  // rings: gate progress
+  if (state.ringMission){
+    const rm = state.ringMission;
+    if (rm.idx < rm.rings.length){
+      const g = rm.rings[rm.idx];
+      const d = plane.position.distanceTo(g.position);
+      // pulse
+      g.scale.setScalar(1 + Math.sin(tt*4)*0.06);
+      if (d < g.userData.radius){
+        if (rm.startT == null) rm.startT = tt;
+        rm.idx++;
+        state.ringsHit++;
+        if (rm.idx < rm.rings.length){
+          rm.rings[rm.idx].material.color.set(0x7ee787);
+          toast('GATE '+(rm.idx)+'/'+rm.rings.length, '+100', 'good', 900);
+          state.score += 100;
+        } else {
+          // completed
+          const elapsed = tt - rm.startT;
+          const bonus = Math.max(0, Math.round(2000 - elapsed*40));
+          state.score += 500 + bonus;
+          toast('COURSE COMPLETE', `${elapsed.toFixed(1)}s · +${500+bonus}`, 'good', 2600);
+          rm.doneT = tt;
+          setTimeout(spawnRingMission, 2500);
+        }
+      }
+    }
+  }
+  // boost rings
+  for (let i=boostGroup.children.length-1;i>=0;i--){
+    const r = boostGroup.children[i];
+    r.rotation.z += dt*0.6;
+    r.scale.setScalar(1 + Math.sin(tt*3+i)*0.08);
+    const d = plane.position.distanceTo(r.position);
+    if (d < r.userData.radius){
+      state.boostT = 6;
+      state.score += 50;
+      boostGroup.remove(r);
+      toast('SPEED BOOST', '+6s × 1.6 thrust', 'info', 1200);
+      // respawn another somewhere
+      setTimeout(()=>{
+        if (boostGroup.children.length < 5){
+          const nx = (seedRng()-0.5)*WORLD*0.5;
+          const nz = (seedRng()-0.5)*WORLD*0.5;
+          const ny = 220 + seedRng()*260;
+          const nr = makeRing(new THREE.Vector3(nx,ny,nz), 0x55aaff, 14);
+          nr.userData.kind = 'boost';
+          boostGroup.add(nr);
+        }
+      }, 3000);
+    }
+  }
+
+  // wind socks animation
+  for (const ap of AIRPORTS){
+    ap.sock.rotation.y = wind.dirRad + Math.PI/2;
+    ap.sock.scale.x = 0.4 + Math.min(1.6, wind.spd/8);
+  }
+
+  // prop spin
+  prop.rotation.z += dt * (state.thr*40 + 2);
+
+  // camera
+  if (camMode === 0){
+    const back = fwdV.clone().multiplyScalar(-22).add(upV.clone().multiplyScalar(7));
+    const target = plane.position.clone().add(back);
+    camera.position.lerp(target, 0.18);
+    camera.lookAt(plane.position.clone().add(fwdV.clone().multiplyScalar(10)));
+  } else {
+    const cp = plane.position.clone().add(upV.clone().multiplyScalar(1.2)).add(fwdV.clone().multiplyScalar(0.5));
+    camera.position.copy(cp);
+    camera.quaternion.copy(plane.quaternion);
+    camera.rotateY(Math.PI);
+  }
+
+  // HUD
+  el('spd').textContent = Math.round(kmh);
+  el('alt').textContent = Math.round(plane.position.y);
+  let hdg = (-THREE.MathUtils.radToDeg(plane.rotation.y) % 360 + 360) % 360;
+  el('hdg').textContent = String(Math.round(hdg)).padStart(3,'0');
+  el('thr').textContent = Math.round(state.thr*100);
+  el('fuelv').textContent = Math.round(state.fuel);
+  el('fuelb').style.width = state.fuel + '%';
+  el('dmgv').textContent = Math.max(0,Math.round(state.hull));
+  el('dmgb').style.width = Math.max(0,state.hull) + '%';
+  el('bstv').textContent = state.boostT.toFixed(1);
+  el('bstb').style.width = (state.boostT/6*100) + '%';
+  el('stall').style.display = stalling ? 'inline' : 'none';
+  el('lowfuel').style.display = state.fuel < 20 ? 'inline' : 'none';
+
+  // mission HUD
+  if (state.cargo){
+    el('mtitle').textContent = `DELIVER ${state.cargo.label.toUpperCase()}`;
+    const dist = plane.position.distanceTo(state.cargo.to.pos);
+    el('mdet').textContent = `${state.cargo.from.name} → ${state.cargo.to.name} · ${(dist/1000).toFixed(1)} km`;
+    const elapsed = tt - state.cargo.startT;
+    el('mtim').textContent = `T+${elapsed.toFixed(1)}s`;
+    el('mtim').classList.toggle('bad', elapsed > 180);
+  }
+  el('scoreV').textContent = state.score;
+  el('delivV').textContent = state.deliveries;
+  el('ringV').textContent = state.ringsHit;
+  el('windDir').textContent = String(Math.round(THREE.MathUtils.radToDeg(wind.dirRad) % 360 + 360) % 360).padStart(3,'0');
+  el('windSpd').textContent = Math.round(wind.spd * 1.94);
+
+  // toast hide
+  if (performance.now() > state.flashUntil) hideToast();
+
+  drawMinimap();
+  renderer.render(scene, camera);
+}
+
+step();
+</script>
+</body>
+</html>
